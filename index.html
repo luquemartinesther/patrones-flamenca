@@ -1,0 +1,2224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patrones Flamenca - Generador de Patrones de Costura</title>
+  <meta name="description" content="Generador interactivo de patrones de costura flamenca. Corpiño, faldas de volantes, bata de cola y más.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💃</text></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; }
+    #root { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+const {
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  useEffect
+} = React;
+
+/* ─────────────────────────────────────────────
+   PATRONES DE COSTURA FLAMENCA
+   App interactiva para generar patrones
+   parametrizados con especialidad en moda flamenca
+   ───────────────────────────────────────────── */
+
+// ── Constantes ──
+const CM_TO_PX = 3.7795275591; // 1cm = ~3.78px en pantalla (96dpi)
+const PRINT_CM_TO_PX = 37.795275591; // para impresión a escala real (SVG)
+const COLORS = {
+  primary: "#B91C1C",
+  primaryLight: "#FEE2E2",
+  primaryDark: "#7F1D1D",
+  accent: "#D97706",
+  accentLight: "#FEF3C7",
+  bg: "#FFF7ED",
+  surface: "#FFFFFF",
+  text: "#1C1917",
+  textLight: "#78716C",
+  grid: "#E7E5E4",
+  pattern: "#B91C1C",
+  patternFill: "rgba(185, 28, 28, 0.08)",
+  mark: "#2563EB",
+  grain: "#059669",
+  notch: "#D97706"
+};
+
+// ── Tipos de patrón ──
+const PATTERN_TYPES = [{
+  id: "corpino",
+  name: "Corpiño",
+  icon: "👗",
+  desc: "Cuerpo ajustado flamenca"
+}, {
+  id: "falda_volantes",
+  name: "Falda de Volantes",
+  icon: "💃",
+  desc: "Falda con volantes circulares"
+}, {
+  id: "volante",
+  name: "Volante Circular",
+  icon: "🌀",
+  desc: "Volante suelto parametrizado"
+}, {
+  id: "manga",
+  name: "Manga",
+  icon: "🦾",
+  desc: "Manga ajustada o de farol"
+}, {
+  id: "godets",
+  name: "Falda Godets",
+  icon: "🔺",
+  desc: "Falda con nesgas/godets"
+}, {
+  id: "bata_cola",
+  name: "Bata de Cola",
+  icon: "✨",
+  desc: "Cola de bata flamenca"
+}];
+
+// ── Medidas por defecto (cm) ──
+const DEFAULT_MEASURES = {
+  pecho: 90,
+  cintura: 70,
+  cadera: 96,
+  largoCorpino: 42,
+  largoFalda: 100,
+  alturaCadera: 20,
+  anchoEspalda: 38,
+  largoManga: 58,
+  contornoBrazo: 30,
+  contornoMuneca: 16,
+  alturaVolante: 25,
+  numVolantes: 3,
+  amplitudVolante: 2.5,
+  largoCola: 150,
+  numGodets: 6
+};
+
+// ── Utilidades de geometría ──
+function polarToCart(cx, cy, r, angleDeg) {
+  const rad = angleDeg * Math.PI / 180;
+  return {
+    x: cx + r * Math.cos(rad),
+    y: cy + r * Math.sin(rad)
+  };
+}
+function arcPath(cx, cy, r, startAngle, endAngle, sweep = 1) {
+  const s = polarToCart(cx, cy, r, startAngle);
+  const e = polarToCart(cx, cy, r, endAngle);
+  const large = endAngle - startAngle > 180 ? 1 : 0;
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
+}
+function bezierCurve(points) {
+  if (points.length < 2) return "";
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const cpx = (prev.x + curr.x) / 2;
+    d += ` Q ${prev.x} ${prev.y} ${cpx} ${(prev.y + curr.y) / 2}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
+}
+
+// ── Generadores de patrones ──
+
+function generateCorpino(m, scale) {
+  const s = scale;
+  const pecho4 = m.pecho / 4 * s;
+  const cintura4 = m.cintura / 4 * s;
+  const largo = m.largoCorpino * s;
+  const espalda2 = m.anchoEspalda / 2 * s;
+  const cadera4 = m.cadera / 4 * s;
+  const altCadera = m.alturaCadera * s;
+  const pinzaPecho = (pecho4 - cintura4) * 0.4;
+  const pinzaLateral = (pecho4 - cintura4) * 0.6;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const ox = 30,
+    oy = 30;
+
+  // Delantero
+  const dx = ox,
+    dy = oy;
+  const dPath = `M ${dx} ${dy}
+        L ${dx + pecho4 + 2 * s} ${dy}
+        L ${dx + pecho4 + 2 * s} ${dy + largo * 0.35}
+        Q ${dx + pecho4 + 3 * s} ${dy + largo * 0.6} ${dx + cintura4 + pinzaLateral + 1 * s} ${dy + largo}
+        L ${dx + cintura4 * 0.6 + pinzaPecho} ${dy + largo}
+        L ${dx + cintura4 * 0.6} ${dy + largo}
+        L ${dx} ${dy + largo}
+        Z`;
+  paths.push({
+    d: dPath,
+    label: "Delantero"
+  });
+
+  // Pinza delantera
+  const pinzaX = dx + cintura4 * 0.6 + pinzaPecho / 2;
+  marks.push({
+    type: "pinza",
+    x1: pinzaX - pinzaPecho / 2,
+    y1: dy + largo,
+    x2: pinzaX,
+    y2: dy + largo * 0.55,
+    x3: pinzaX + pinzaPecho / 2,
+    y3: dy + largo
+  });
+
+  // Hilo de la tela delantero
+  marks.push({
+    type: "grano",
+    x1: dx + 5 * s,
+    y1: dy + 5 * s,
+    x2: dx + 5 * s,
+    y2: dy + largo - 5 * s
+  });
+
+  // Piquetes
+  marks.push({
+    type: "piquete",
+    x: dx,
+    y: dy + largo * 0.5
+  });
+  marks.push({
+    type: "piquete",
+    x: dx + pecho4 + 2 * s,
+    y: dy + largo * 0.5
+  });
+  labels.push({
+    text: "DELANTERO",
+    x: dx + pecho4 / 2,
+    y: dy + largo / 2,
+    size: 14
+  });
+  labels.push({
+    text: `${(m.pecho / 4 + 2).toFixed(1)} cm`,
+    x: dx + pecho4 / 2,
+    y: dy - 8,
+    size: 10,
+    color: COLORS.accent
+  });
+  labels.push({
+    text: `${m.largoCorpino} cm`,
+    x: dx - 18,
+    y: dy + largo / 2,
+    size: 10,
+    color: COLORS.accent,
+    rotate: -90
+  });
+
+  // Espalda (desplazado a la derecha)
+  const ex = dx + pecho4 + 30 * s,
+    ey = oy;
+  const espalda4 = espalda2 / 2 + 1 * s;
+  const ePath = `M ${ex} ${ey}
+        L ${ex + espalda4 + 2 * s} ${ey}
+        L ${ex + espalda4 + 2 * s} ${ey + largo * 0.35}
+        Q ${ex + espalda4 + 2.5 * s} ${ey + largo * 0.6} ${ex + cintura4 * 0.95} ${ey + largo}
+        L ${ex} ${ey + largo}
+        Z`;
+  paths.push({
+    d: ePath,
+    label: "Espalda"
+  });
+  marks.push({
+    type: "grano",
+    x1: ex + 5 * s,
+    y1: ey + 5 * s,
+    x2: ex + 5 * s,
+    y2: ey + largo - 5 * s
+  });
+  marks.push({
+    type: "piquete",
+    x: ex,
+    y: ey + largo * 0.5
+  });
+  labels.push({
+    text: "ESPALDA",
+    x: ex + espalda4 / 2,
+    y: ey + largo / 2,
+    size: 14
+  });
+  const totalW = ex + espalda4 + 35 * s;
+  const totalH = oy + largo + 30;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalW,
+    height: totalH,
+    name: "Corpiño Flamenca"
+  };
+}
+function generateVolante(m, scale) {
+  const s = scale;
+  const altura = m.alturaVolante * s;
+  const amplitud = m.amplitudVolante;
+  const baseCirc = m.cadera * Math.PI;
+  const rInner = baseCirc / amplitud / (2 * Math.PI) * s;
+  const rOuter = rInner + altura;
+  const cx = rOuter + 30,
+    cy = rOuter + 30;
+  const angleSpan = Math.min(340, amplitud * 90);
+  const startA = -angleSpan / 2 + 90;
+  const endA = angleSpan / 2 + 90;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const outerArc = arcPath(cx, cy, rOuter, startA, endA);
+  const innerArc = arcPath(cx, cy, rInner, endA, startA, 0);
+  const sI = polarToCart(cx, cy, rInner, startA);
+  const eO = polarToCart(cx, cy, rOuter, endA);
+  const sO = polarToCart(cx, cy, rOuter, startA);
+  const eI = polarToCart(cx, cy, rInner, endA);
+  const d = `${outerArc} L ${eI.x} ${eI.y} ${innerArc} L ${sO.x} ${sO.y} Z`;
+  paths.push({
+    d,
+    label: "Volante"
+  });
+
+  // Hilo de la tela
+  const grainStart = polarToCart(cx, cy, rInner + 10, 90);
+  const grainEnd = polarToCart(cx, cy, rOuter - 10, 90);
+  marks.push({
+    type: "grano",
+    x1: grainStart.x,
+    y1: grainStart.y,
+    x2: grainEnd.x,
+    y2: grainEnd.y
+  });
+
+  // Piquetes de unión
+  for (let a = startA; a <= endA; a += (endA - startA) / 4) {
+    const p = polarToCart(cx, cy, rInner, a);
+    marks.push({
+      type: "piquete",
+      x: p.x,
+      y: p.y
+    });
+  }
+  labels.push({
+    text: "VOLANTE CIRCULAR",
+    x: cx,
+    y: cy,
+    size: 14
+  });
+  labels.push({
+    text: `Altura: ${m.alturaVolante} cm`,
+    x: cx,
+    y: cy + 18,
+    size: 10,
+    color: COLORS.accent
+  });
+  labels.push({
+    text: `Amplitud: ×${amplitud}`,
+    x: cx,
+    y: cy + 32,
+    size: 10,
+    color: COLORS.accent
+  });
+  const totalSize = (rOuter + 30) * 2;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalSize,
+    height: totalSize,
+    name: "Volante Circular"
+  };
+}
+function generateFaldaVolantes(m, scale) {
+  const s = scale;
+  const cintura4 = m.cintura / 4 * s;
+  const cadera4 = m.cadera / 4 * s;
+  const largoTotal = m.largoFalda * s;
+  const altCadera = m.alturaCadera * s;
+  const numV = m.numVolantes;
+  const altVolante = m.alturaVolante * s;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const ox = 30,
+    oy = 30;
+
+  // Base de la falda (pieza recta desde cintura hasta cadera y luego ampliada)
+  const faldaBase = largoTotal - numV * altVolante * 0.7;
+  const anchoAbajo = cadera4 + 8 * s;
+  const basePath = `M ${ox} ${oy}
+        L ${ox + cintura4} ${oy}
+        L ${ox + cadera4 + 2 * s} ${oy + altCadera}
+        L ${ox + anchoAbajo} ${oy + faldaBase}
+        L ${ox} ${oy + faldaBase}
+        Z`;
+  paths.push({
+    d: basePath,
+    label: "Base Falda"
+  });
+  marks.push({
+    type: "grano",
+    x1: ox + 5 * s,
+    y1: oy + 5 * s,
+    x2: ox + 5 * s,
+    y2: oy + faldaBase - 5 * s
+  });
+  marks.push({
+    type: "piquete",
+    x: ox + cintura4 / 2,
+    y: oy
+  });
+  labels.push({
+    text: "BASE FALDA",
+    x: ox + cadera4 / 2,
+    y: oy + faldaBase / 2,
+    size: 14
+  });
+  labels.push({
+    text: `${m.largoFalda} cm total`,
+    x: ox - 18,
+    y: oy + faldaBase / 2,
+    size: 10,
+    color: COLORS.accent,
+    rotate: -90
+  });
+
+  // Líneas de posición de volantes
+  for (let i = 0; i < numV; i++) {
+    const yPos = oy + faldaBase - i * altVolante * 0.5;
+    if (yPos > oy + altCadera) {
+      marks.push({
+        type: "linea",
+        x1: ox,
+        y1: yPos,
+        x2: ox + anchoAbajo,
+        y2: yPos,
+        dashed: true
+      });
+      labels.push({
+        text: `Volante ${i + 1}`,
+        x: ox + anchoAbajo + 5 * s,
+        y: yPos,
+        size: 9,
+        color: COLORS.mark
+      });
+    }
+  }
+
+  // Volante individual (miniatura a la derecha)
+  const vox = ox + anchoAbajo + 25 * s;
+  const voy = oy + 10 * s;
+  const vr1 = 15 * s;
+  const vr2 = vr1 + altVolante * 0.8;
+  const vOuterArc = arcPath(vox + vr2, voy + vr2, vr2, 200, 340);
+  const vInnerArc = arcPath(vox + vr2, voy + vr2, vr1, 340, 200, 0);
+  const vs1 = polarToCart(vox + vr2, voy + vr2, vr1, 200);
+  const ve1 = polarToCart(vox + vr2, voy + vr2, vr2, 340);
+  const vs2 = polarToCart(vox + vr2, voy + vr2, vr2, 200);
+  const ve2 = polarToCart(vox + vr2, voy + vr2, vr1, 340);
+  const vPath = `${vOuterArc} L ${ve2.x} ${ve2.y} ${vInnerArc} L ${vs2.x} ${vs2.y} Z`;
+  paths.push({
+    d: vPath,
+    label: "Volante"
+  });
+  labels.push({
+    text: `VOLANTE ×${numV}`,
+    x: vox + vr2,
+    y: voy + vr2,
+    size: 12
+  });
+  labels.push({
+    text: `Alt: ${m.alturaVolante} cm`,
+    x: vox + vr2,
+    y: voy + vr2 + 16,
+    size: 9,
+    color: COLORS.accent
+  });
+  const totalW = vox + vr2 * 2 + 40;
+  const totalH = oy + faldaBase + 40;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalW,
+    height: totalH,
+    name: "Falda de Volantes"
+  };
+}
+function generateManga(m, scale) {
+  const s = scale;
+  const largo = m.largoManga * s;
+  const brazo2 = m.contornoBrazo / 2 * s;
+  const muneca2 = m.contornoMuneca / 2 * s;
+  const copaCurve = brazo2 * 0.55;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const ox = 40,
+    oy = 50;
+  const cx = ox + brazo2;
+
+  // Copa de manga
+  const mangaPath = `M ${ox} ${oy + copaCurve}
+        Q ${ox} ${oy} ${cx} ${oy}
+        Q ${ox + brazo2 * 2} ${oy} ${ox + brazo2 * 2} ${oy + copaCurve}
+        L ${cx + muneca2} ${oy + largo}
+        L ${cx - muneca2} ${oy + largo}
+        Z`;
+  paths.push({
+    d: mangaPath,
+    label: "Manga"
+  });
+  marks.push({
+    type: "grano",
+    x1: cx,
+    y1: oy + 10 * s,
+    x2: cx,
+    y2: oy + largo - 5 * s
+  });
+  marks.push({
+    type: "piquete",
+    x: cx,
+    y: oy
+  });
+  marks.push({
+    type: "piquete",
+    x: ox,
+    y: oy + copaCurve
+  });
+  marks.push({
+    type: "piquete",
+    x: ox + brazo2 * 2,
+    y: oy + copaCurve
+  });
+  labels.push({
+    text: "MANGA",
+    x: cx,
+    y: oy + largo / 2,
+    size: 14
+  });
+  labels.push({
+    text: `${m.largoManga} cm`,
+    x: cx + brazo2 + 12,
+    y: oy + largo / 2,
+    size: 10,
+    color: COLORS.accent,
+    rotate: -90
+  });
+  const totalW = ox + brazo2 * 2 + 50;
+  const totalH = oy + largo + 40;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalW,
+    height: totalH,
+    name: "Manga"
+  };
+}
+function generateGodets(m, scale) {
+  const s = scale;
+  const cintura4 = m.cintura / 4 * s;
+  const cadera4 = m.cadera / 4 * s;
+  const largo = m.largoFalda * s;
+  const altCadera = m.alturaCadera * s;
+  const numG = m.numGodets;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const ox = 30,
+    oy = 30;
+
+  // Panel base de la falda
+  const panelW = cadera4;
+  const basePath = `M ${ox} ${oy}
+        L ${ox + cintura4} ${oy}
+        L ${ox + cadera4} ${oy + altCadera}
+        L ${ox + cadera4} ${oy + largo}
+        L ${ox} ${oy + largo}
+        Z`;
+  paths.push({
+    d: basePath,
+    label: "Panel Falda"
+  });
+
+  // Líneas de inserción de godets
+  const godetSpacing = cadera4 / (numG + 1);
+  for (let i = 1; i <= numG; i++) {
+    const gx = ox + godetSpacing * i;
+    marks.push({
+      type: "linea",
+      x1: gx,
+      y1: oy + altCadera + 5 * s,
+      x2: gx,
+      y2: oy + largo,
+      dashed: true
+    });
+  }
+  marks.push({
+    type: "grano",
+    x1: ox + 5 * s,
+    y1: oy + 5 * s,
+    x2: ox + 5 * s,
+    y2: oy + largo - 5 * s
+  });
+  labels.push({
+    text: "PANEL FALDA",
+    x: ox + cadera4 / 2,
+    y: oy + largo / 2 - 10,
+    size: 14
+  });
+
+  // Pieza de godet
+  const gox = ox + cadera4 + 25 * s;
+  const godetH = largo - altCadera;
+  const godetW = 20 * s;
+  const godetPath = `M ${gox + godetW} ${oy + altCadera}
+        L ${gox + godetW * 2} ${oy + largo}
+        Q ${gox + godetW} ${oy + largo + 5 * s} ${gox} ${oy + largo}
+        Z`;
+  paths.push({
+    d: godetPath,
+    label: "Godet"
+  });
+  marks.push({
+    type: "grano",
+    x1: gox + godetW,
+    y1: oy + altCadera + 10 * s,
+    x2: gox + godetW,
+    y2: oy + largo - 5 * s
+  });
+  labels.push({
+    text: `GODET ×${numG}`,
+    x: gox + godetW,
+    y: oy + largo / 2 + altCadera / 2,
+    size: 12
+  });
+  const totalW = gox + godetW * 2 + 40;
+  const totalH = oy + largo + 20 * s;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalW,
+    height: totalH,
+    name: "Falda Godets"
+  };
+}
+function generateBataCola(m, scale) {
+  const s = scale;
+  const cintura4 = m.cintura / 4 * s;
+  const cadera4 = m.cadera / 4 * s;
+  const largoFrente = m.largoFalda * s;
+  const largoCola = m.largoCola * s;
+  const altCadera = m.alturaCadera * s;
+  const paths = [];
+  const marks = [];
+  const labels = [];
+  const ox = 30,
+    oy = 30;
+
+  // Panel principal con cola progresiva
+  const colaPath = `M ${ox} ${oy}
+        L ${ox + cintura4 + 5 * s} ${oy}
+        L ${ox + cadera4 + 8 * s} ${oy + altCadera}
+        L ${ox + cadera4 + 15 * s} ${oy + largoFrente}
+        Q ${ox + cadera4 + 20 * s} ${oy + largoCola * 0.7} ${ox + cadera4 * 0.7} ${oy + largoCola}
+        Q ${ox + cadera4 * 0.3} ${oy + largoCola + 5 * s} ${ox} ${oy + largoCola * 0.85}
+        L ${ox} ${oy + largoFrente}
+        Z`;
+  paths.push({
+    d: colaPath,
+    label: "Bata de Cola"
+  });
+  marks.push({
+    type: "grano",
+    x1: ox + 8 * s,
+    y1: oy + 5 * s,
+    x2: ox + 8 * s,
+    y2: oy + largoFrente - 5 * s
+  });
+  marks.push({
+    type: "piquete",
+    x: ox,
+    y: oy + largoFrente
+  });
+  marks.push({
+    type: "piquete",
+    x: ox + cadera4 + 15 * s,
+    y: oy + largoFrente
+  });
+
+  // Líneas de volantes en la cola
+  const numVolCola = 5;
+  for (let i = 1; i <= numVolCola; i++) {
+    const yy = oy + largoFrente + (largoCola - largoFrente) * i / (numVolCola + 1) * 0.6;
+    marks.push({
+      type: "linea",
+      x1: ox,
+      y1: yy,
+      x2: ox + cadera4 + 10 * s,
+      y2: yy - 5 * s,
+      dashed: true
+    });
+  }
+  labels.push({
+    text: "BATA DE COLA",
+    x: ox + cadera4 / 2 + 5 * s,
+    y: oy + largoFrente / 2,
+    size: 14
+  });
+  labels.push({
+    text: `Frente: ${m.largoFalda} cm`,
+    x: ox - 18,
+    y: oy + largoFrente / 2,
+    size: 10,
+    color: COLORS.accent,
+    rotate: -90
+  });
+  labels.push({
+    text: `Cola: ${m.largoCola} cm`,
+    x: ox + cadera4 + 20 * s,
+    y: oy + largoCola / 2,
+    size: 10,
+    color: COLORS.accent,
+    rotate: -90
+  });
+  const totalW = ox + cadera4 + 30 * s;
+  const totalH = oy + largoCola + 15 * s;
+  return {
+    paths,
+    marks,
+    labels,
+    width: totalW,
+    height: totalH,
+    name: "Bata de Cola"
+  };
+}
+
+// ── Mapa de generadores ──
+const GENERATORS = {
+  corpino: generateCorpino,
+  falda_volantes: generateFaldaVolantes,
+  volante: generateVolante,
+  manga: generateManga,
+  godets: generateGodets,
+  bata_cola: generateBataCola
+};
+
+// ── Campos editables por patrón ──
+const FIELDS_BY_PATTERN = {
+  corpino: ["pecho", "cintura", "cadera", "largoCorpino", "anchoEspalda", "alturaCadera"],
+  falda_volantes: ["cintura", "cadera", "largoFalda", "alturaCadera", "alturaVolante", "numVolantes"],
+  volante: ["cadera", "alturaVolante", "amplitudVolante"],
+  manga: ["largoManga", "contornoBrazo", "contornoMuneca"],
+  godets: ["cintura", "cadera", "largoFalda", "alturaCadera", "numGodets"],
+  bata_cola: ["cintura", "cadera", "largoFalda", "largoCola", "alturaCadera"]
+};
+const FIELD_LABELS = {
+  pecho: "Contorno de pecho (cm)",
+  cintura: "Contorno de cintura (cm)",
+  cadera: "Contorno de cadera (cm)",
+  largoCorpino: "Largo del corpiño (cm)",
+  largoFalda: "Largo de falda (cm)",
+  alturaCadera: "Altura de cadera (cm)",
+  anchoEspalda: "Ancho de espalda (cm)",
+  largoManga: "Largo de manga (cm)",
+  contornoBrazo: "Contorno de brazo (cm)",
+  contornoMuneca: "Contorno de muñeca (cm)",
+  alturaVolante: "Altura del volante (cm)",
+  numVolantes: "Número de volantes",
+  amplitudVolante: "Amplitud (×)",
+  largoCola: "Largo de la cola (cm)",
+  numGodets: "Número de godets"
+};
+
+// ── Guías de corte por patrón ──
+const CUTTING_GUIDES = {
+  corpino: {
+    title: "Corte del Corpiño Flamenca",
+    telaRecomendada: "Popelín, raso, brocado, crespón o tafetán con buena caída y cuerpo.",
+    anchoTela: 150,
+    dobleTela: true,
+    piezas: [{
+      nombre: "Delantero",
+      cantidad: 1,
+      corteDoble: true,
+      alDoblez: true,
+      notas: "Colocar el centro del delantero al doblez de la tela."
+    }, {
+      nombre: "Espalda",
+      cantidad: 2,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Cortar 2 piezas simétricas (derecha e izquierda). Dejar margen extra en el centro espalda para la cremallera."
+    }, {
+      nombre: "Entretela corpiño",
+      cantidad: 1,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Cortar entretela para delantero y espalda para dar estructura."
+    }],
+    pasos: ["Plancha la tela antes de cortar para evitar que encoja después.", "Dobla la tela a lo largo por la mitad, derecho con derecho, alineando los orillos.", "Coloca el patrón del DELANTERO con el centro al doblez de la tela. El hilo de la tela (flecha verde) debe quedar paralelo al orillo.", "Coloca las dos piezas de ESPALDA en la tela restante, en espejo, con el hilo paralelo al orillo.", "Sujeta con alfileres cada 10-15 cm por dentro del margen de costura.", "Marca los piquetes con pequeños cortes de 3mm en el margen de costura.", "Transfiere las pinzas con papel de calco o hilvanando.", "Corta siguiendo la línea del margen de costura (línea discontinua exterior)."],
+    consejosFlamenca: ["Si la tela tiene estampado (lunares, flores), asegúrate de casar el dibujo en las costuras laterales.", "Para tela de lunares: coloca los patrones todos en la misma dirección del dibujo.", "El corpiño flamenca va muy ajustado: no añadas holgura extra al cortar.", "Si vas a poner ballenas, marca su posición antes de retirar el patrón."],
+    layout: m => {
+      const anchoTela = 150;
+      const pecho4 = m.pecho / 4 + 2;
+      const espalda4 = m.anchoEspalda / 4 + 3;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(m.largoCorpino + 10),
+        piezasLayout: [{
+          x: 0,
+          y: 5,
+          w: pecho4 + 3,
+          h: m.largoCorpino + 3,
+          label: "DELANTERO",
+          color: "#EF4444",
+          doblez: "izq",
+          rotate: false
+        }, {
+          x: pecho4 + 8,
+          y: 5,
+          w: espalda4 + 3,
+          h: m.largoCorpino + 3,
+          label: "ESPALDA ×2",
+          color: "#3B82F6",
+          doblez: null,
+          rotate: false
+        }],
+        doblezLine: true
+      };
+    }
+  },
+  falda_volantes: {
+    title: "Corte de Falda de Volantes",
+    telaRecomendada: "Crespón, gasa, popelín, satén o tela de lunares. Para volantes con mucho vuelo, mejor telas ligeras.",
+    anchoTela: 150,
+    dobleTela: true,
+    piezas: [{
+      nombre: "Base de la falda",
+      cantidad: 2,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Cortar panel delantero al doblez y 2 piezas de espalda."
+    }, {
+      nombre: "Volantes",
+      cantidad: "variable",
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Los volantes circulares se cortan en piezas y se unen. Necesitarás varias piezas por cada volante."
+    }],
+    pasos: ["Calcula la tela necesaria: la base de la falda + los volantes circulares requieren bastante metraje.", "Dobla la tela y coloca la BASE DE FALDA con el centro delantero al doblez.", "Corta las piezas de la base dejando el margen de costura indicado.", "Para los VOLANTES: extiende la tela en una sola capa.", "Coloca el patrón del volante circular sobre la tela con el hilo de la tela siguiendo la flecha verde.", "Según la amplitud, necesitarás cortar cada volante en 2-4 secciones y unirlas.", "Marca los piquetes de unión en el borde interior de cada sección de volante.", "Corta todos los volantes necesarios (multiplica por el número indicado)."],
+    consejosFlamenca: ["Los volantes de flamenca suelen llevar mucho vuelo (amplitud ×2 a ×3). Calcula bien el metraje.", "Si la tela es de lunares, corta todos los volantes en la misma dirección para que casen.", "Para volantes con cancan, corta una pieza igual en tul o organza.", "El bajo de los volantes puede rematarse con un bies al tono o con puntilla.", "Plancha cada volante antes de coserlo a la falda para controlar el vuelo."],
+    layout: m => {
+      const anchoTela = 150;
+      const cintura4 = m.cintura / 4;
+      const cadera4 = m.cadera / 4 + 8;
+      const altBase = m.largoFalda - m.numVolantes * m.alturaVolante * 0.5;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(altBase + m.alturaVolante * 2 + 20),
+        piezasLayout: [{
+          x: 0,
+          y: 5,
+          w: cadera4 + 5,
+          h: altBase + 3,
+          label: "BASE FALDA",
+          color: "#EF4444",
+          doblez: "izq",
+          rotate: false
+        }, {
+          x: cadera4 + 12,
+          y: 5,
+          w: m.alturaVolante * 2 + 10,
+          h: m.alturaVolante * 2 + 10,
+          label: `VOLANTE ×${m.numVolantes}`,
+          color: "#8B5CF6",
+          doblez: null,
+          rotate: false,
+          circular: true
+        }],
+        doblezLine: true
+      };
+    }
+  },
+  volante: {
+    title: "Corte del Volante Circular",
+    telaRecomendada: "Cualquier tela con buena caída: popelín, gasa, crespón, organza. Evitar telas rígidas.",
+    anchoTela: 150,
+    dobleTela: false,
+    piezas: [{
+      nombre: "Volante circular",
+      cantidad: "según perímetro",
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Se corta en secciones y se unen por las costuras laterales."
+    }],
+    pasos: ["Extiende la tela en una sola capa sobre una superficie amplia y plana.", "Coloca el patrón del volante con la flecha del hilo de la tela apuntando al orillo.", "El volante circular ocupa mucho espacio: calcula cuántas secciones caben en el ancho de tu tela.", "Corta cada sección dejando margen de costura en los laterales rectos.", "En el borde exterior (curvo grande) deja margen para el dobladillo.", "En el borde interior (curvo pequeño) deja margen para coser a la falda.", "Marca todos los piquetes del borde interior para facilitar el montaje.", "Une las secciones por los laterales rectos antes de coser a la prenda."],
+    consejosFlamenca: ["A mayor amplitud, más vuelo tendrá el volante. Para flamenca, ×2 a ×3 es lo habitual.", "Los volantes al bies tienen más caída natural pero gastan más tela.", "Para volantes de cancan: corta una pieza igual en tul rígido.", "Si quieres volantes con mucho cuerpo, puedes endurecerlos con almidón."],
+    layout: m => {
+      const anchoTela = 150;
+      const rInner = m.cadera * Math.PI / m.amplitudVolante / (2 * Math.PI);
+      const rOuter = rInner + m.alturaVolante;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(rOuter * 2 + 15),
+        piezasLayout: [{
+          x: 5,
+          y: 5,
+          w: rOuter * 2 + 5,
+          h: rOuter * 2 + 5,
+          label: "VOLANTE",
+          color: "#8B5CF6",
+          doblez: null,
+          rotate: false,
+          circular: true
+        }],
+        doblezLine: false
+      };
+    }
+  },
+  manga: {
+    title: "Corte de la Manga",
+    telaRecomendada: "La misma tela que el corpiño. Si es manga de farol, telas con caída.",
+    anchoTela: 150,
+    dobleTela: true,
+    piezas: [{
+      nombre: "Manga",
+      cantidad: 2,
+      corteDoble: true,
+      alDoblez: false,
+      notas: "Cortar 2 mangas simétricas (derecha e izquierda). Marcar piquete superior de la copa."
+    }],
+    pasos: ["Dobla la tela derecho con derecho.", "Coloca el patrón de la manga con el hilo de la tela (flecha verde) paralelo al orillo.", "El piquete superior de la copa debe quedar marcado: indica el centro que se alineará con la costura del hombro.", "Los piquetes laterales de la copa marcan dónde comienza la costura lateral del corpiño.", "Sujeta con alfileres y corta con el margen de costura indicado.", "Marca todos los piquetes con pequeños cortes de 3mm.", "Al tener la tela doblada, cortas ambas mangas a la vez (serán simétricas)."],
+    consejosFlamenca: ["La manga flamenca clásica es ajustada hasta el codo y puede abrirse en volante.", "Si la manga lleva volante en el puño, córtalo aparte como un volante circular pequeño.", "Para mangas de farol, aumenta el ancho del patrón un 30-50% y frunce en el puño.", "Marca la línea del codo si la manga es larga y ajustada, para colocar una pequeña pinza."],
+    layout: m => {
+      const anchoTela = 150;
+      const brazo = m.contornoBrazo / 2 + 5;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(m.largoManga + 10),
+        piezasLayout: [{
+          x: 5,
+          y: 5,
+          w: brazo * 2 + 3,
+          h: m.largoManga + 3,
+          label: "MANGA ×2",
+          color: "#10B981",
+          doblez: null,
+          rotate: false
+        }],
+        doblezLine: true
+      };
+    }
+  },
+  godets: {
+    title: "Corte de Falda con Godets",
+    telaRecomendada: "Crespón, satén, gasa o popelín. Los godets lucen mejor en telas con caída.",
+    anchoTela: 150,
+    dobleTela: true,
+    piezas: [{
+      nombre: "Panel de falda",
+      cantidad: 2,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Panel delantero al doblez, 2 piezas de espalda."
+    }, {
+      nombre: "Godet (nesga)",
+      cantidad: "variable",
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Cortar al bies para máxima caída y vuelo."
+    }],
+    pasos: ["Dobla la tela y coloca el panel de falda con el centro delantero al doblez.", "Corta el panel con los márgenes de costura.", "Marca las líneas de inserción de los godets en el panel (líneas azules discontinuas).", "Para los GODETS: es fundamental cortarlos AL BIES (a 45° del hilo de la tela).", "Coloca el patrón triangular del godet con el hilo de la tela en diagonal.", "Corta el número indicado de godets.", "Marca el vértice superior de cada godet: es el punto de inserción en la falda."],
+    consejosFlamenca: ["Los godets al bies dan un vuelo espectacular en la falda flamenca.", "Para bata de cola, los godets traseros pueden ser más largos que los delanteros.", "Remata el bajo de los godets con un bies estrecho para dar peso y mejor caída.", "Si quieres más vuelo, aumenta el ángulo de apertura del godet."],
+    layout: m => {
+      const anchoTela = 150;
+      const cadera4 = m.cadera / 4 + 5;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(m.largoFalda + 15),
+        piezasLayout: [{
+          x: 0,
+          y: 5,
+          w: cadera4 + 3,
+          h: m.largoFalda + 3,
+          label: "PANEL FALDA",
+          color: "#EF4444",
+          doblez: "izq",
+          rotate: false
+        }, {
+          x: cadera4 + 10,
+          y: 5,
+          w: 25,
+          h: m.largoFalda * 0.7,
+          label: `GODET ×${m.numGodets}`,
+          color: "#F59E0B",
+          doblez: null,
+          rotate: false,
+          triangle: true
+        }, {
+          x: cadera4 + 40,
+          y: 5,
+          w: 25,
+          h: m.largoFalda * 0.7,
+          label: "GODET (bies)",
+          color: "#F59E0B",
+          doblez: null,
+          rotate: true,
+          triangle: true
+        }],
+        doblezLine: true
+      };
+    }
+  },
+  bata_cola: {
+    title: "Corte de la Bata de Cola",
+    telaRecomendada: "Crespón grueso, tafetán, satén pesado. La cola necesita tela con cuerpo y peso.",
+    anchoTela: 150,
+    dobleTela: false,
+    piezas: [{
+      nombre: "Panel principal con cola",
+      cantidad: 2,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Panel delantero al doblez. Espalda en 2 piezas con extensión de cola."
+    }, {
+      nombre: "Volantes de cola",
+      cantidad: "5-8",
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Volantes circulares que se cosen escalonados en la cola."
+    }, {
+      nombre: "Enagua/cancán",
+      cantidad: 1,
+      corteDoble: false,
+      alDoblez: false,
+      notas: "Estructura interior en tul rígido para dar volumen a la cola."
+    }],
+    pasos: ["La bata de cola requiere MUCHO metraje (6-10 metros según el largo de cola). Calcula bien antes de comprar.", "Extiende la tela en una sola capa en el suelo o mesa muy grande.", "Coloca el patrón principal alineando el hilo de la tela con el orillo.", "La parte delantera es más corta y la trasera se extiende formando la cola.", "Corta el panel principal con márgenes generosos en la cola (2-3 cm).", "Corta los volantes circulares para la cola en secciones, como un volante normal.", "Los volantes de la cola van escalonados: el de abajo es el más largo, el de arriba el más corto.", "Corta las piezas de la enagua en tul rígido siguiendo la misma forma de la cola."],
+    consejosFlamenca: ["La bata de cola es la pieza más compleja de la costura flamenca. Tómate tu tiempo.", "La cola suele medir entre 1.5 y 2.5 metros. Para principiantes, empieza con 1.5m.", "Los volantes de la cola deben ir progresivamente: más vuelo en los inferiores.", "El peso de la cola es importante: no escatimes en tela ni en la enagua de tul.", "Hilvana toda la cola antes de coser a máquina para asegurar la caída correcta.", "El remate del bajo de la cola se hace con un bies ancho y pesado."],
+    layout: m => {
+      const anchoTela = 150;
+      const cadera4 = m.cadera / 4 + 15;
+      return {
+        anchoTela,
+        largoNecesario: Math.ceil(m.largoCola + 20),
+        piezasLayout: [{
+          x: 0,
+          y: 5,
+          w: cadera4 + 5,
+          h: m.largoCola + 5,
+          label: "PANEL + COLA",
+          color: "#EF4444",
+          doblez: null,
+          rotate: false,
+          cola: true
+        }, {
+          x: cadera4 + 15,
+          y: 5,
+          w: 40,
+          h: 40,
+          label: "VOLANTES COLA ×5",
+          color: "#8B5CF6",
+          doblez: null,
+          rotate: false,
+          circular: true
+        }],
+        doblezLine: false
+      };
+    }
+  }
+};
+
+// ── Componente: Diagrama de colocación de tela ──
+function FabricLayoutDiagram({
+  guide,
+  measures
+}) {
+  const layout = guide.layout(measures);
+  const svgW = 520;
+  const telaDisplayH = Math.min(layout.largoNecesario * 2.2, 400);
+  const svgH = telaDisplayH + 60;
+  const telaW = svgW - 40;
+  const scaleX = telaW / layout.anchoTela;
+  const scaleY = (telaDisplayH - 20) / layout.largoNecesario;
+  const sc = Math.min(scaleX, scaleY);
+  return /*#__PURE__*/React.createElement("svg", {
+    width: svgW,
+    height: svgH,
+    viewBox: `0 0 ${svgW} ${svgH}`
+  }, /*#__PURE__*/React.createElement("rect", {
+    x: 20,
+    y: 20,
+    width: layout.anchoTela * sc,
+    height: layout.largoNecesario * sc,
+    fill: "#FEF9EF",
+    stroke: "#A3A3A3",
+    strokeWidth: 1.5,
+    rx: 2
+  }), /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("pattern", {
+    id: "lunares",
+    width: 12,
+    height: 12,
+    patternUnits: "userSpaceOnUse"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: 6,
+    cy: 6,
+    r: 1.5,
+    fill: "rgba(185,28,28,0.12)"
+  }))), /*#__PURE__*/React.createElement("rect", {
+    x: 20,
+    y: 20,
+    width: layout.anchoTela * sc,
+    height: layout.largoNecesario * sc,
+    fill: "url(#lunares)",
+    rx: 2
+  }), layout.doblezLine && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+    x1: 20,
+    y1: 20,
+    x2: 20,
+    y2: 20 + layout.largoNecesario * sc,
+    stroke: "#DC2626",
+    strokeWidth: 2,
+    strokeDasharray: "8 4"
+  }), /*#__PURE__*/React.createElement("text", {
+    x: 8,
+    y: 20 + layout.largoNecesario * sc / 2,
+    fontSize: 9,
+    fill: "#DC2626",
+    fontWeight: "bold",
+    transform: `rotate(-90, 8, ${20 + layout.largoNecesario * sc / 2})`,
+    textAnchor: "middle"
+  }, "DOBLEZ")), /*#__PURE__*/React.createElement("line", {
+    x1: 20 + layout.anchoTela * sc,
+    y1: 20,
+    x2: 20 + layout.anchoTela * sc,
+    y2: 20 + layout.largoNecesario * sc,
+    stroke: "#737373",
+    strokeWidth: 2
+  }), /*#__PURE__*/React.createElement("text", {
+    x: 20 + layout.anchoTela * sc + 4,
+    y: 20 + layout.largoNecesario * sc / 2,
+    fontSize: 9,
+    fill: "#737373",
+    transform: `rotate(-90, ${20 + layout.anchoTela * sc + 4}, ${20 + layout.largoNecesario * sc / 2})`,
+    textAnchor: "middle"
+  }, "ORILLO"), layout.piezasLayout.map((p, i) => {
+    const px = 20 + p.x * sc;
+    const py = 20 + p.y * sc;
+    const pw = p.w * sc;
+    const ph = p.h * sc;
+    if (p.circular) {
+      const cr = Math.min(pw, ph) / 2;
+      return /*#__PURE__*/React.createElement("g", {
+        key: i
+      }, /*#__PURE__*/React.createElement("circle", {
+        cx: px + cr,
+        cy: py + cr,
+        r: cr,
+        fill: `${p.color}22`,
+        stroke: p.color,
+        strokeWidth: 1.5
+      }), /*#__PURE__*/React.createElement("circle", {
+        cx: px + cr,
+        cy: py + cr,
+        r: cr * 0.4,
+        fill: "none",
+        stroke: p.color,
+        strokeWidth: 1,
+        strokeDasharray: "4 2"
+      }), /*#__PURE__*/React.createElement("text", {
+        x: px + cr,
+        y: py + cr + 4,
+        textAnchor: "middle",
+        fontSize: 9,
+        fontWeight: "bold",
+        fill: p.color
+      }, p.label));
+    }
+    if (p.triangle) {
+      const transform = p.rotate ? `rotate(45, ${px + pw / 2}, ${py + ph / 2})` : "";
+      return /*#__PURE__*/React.createElement("g", {
+        key: i,
+        transform: transform
+      }, /*#__PURE__*/React.createElement("polygon", {
+        points: `${px + pw / 2},${py} ${px + pw},${py + ph} ${px},${py + ph}`,
+        fill: `${p.color}22`,
+        stroke: p.color,
+        strokeWidth: 1.5
+      }), p.rotate && /*#__PURE__*/React.createElement("line", {
+        x1: px + pw / 2,
+        y1: py + 5,
+        x2: px + pw / 2,
+        y2: py + ph - 5,
+        stroke: "#059669",
+        strokeWidth: 1,
+        strokeDasharray: "3 2"
+      }), /*#__PURE__*/React.createElement("text", {
+        x: px + pw / 2,
+        y: py + ph * 0.6,
+        textAnchor: "middle",
+        fontSize: 8,
+        fontWeight: "bold",
+        fill: p.color
+      }, p.label));
+    }
+    return /*#__PURE__*/React.createElement("g", {
+      key: i
+    }, /*#__PURE__*/React.createElement("rect", {
+      x: px,
+      y: py,
+      width: pw,
+      height: ph,
+      fill: `${p.color}18`,
+      stroke: p.color,
+      strokeWidth: 1.5,
+      rx: 2
+    }), /*#__PURE__*/React.createElement("line", {
+      x1: px + 8,
+      y1: py + 10,
+      x2: px + 8,
+      y2: py + ph - 10,
+      stroke: "#059669",
+      strokeWidth: 1.2
+    }), /*#__PURE__*/React.createElement("polygon", {
+      points: `${px + 8},${py + ph - 10} ${px + 4},${py + ph - 18} ${px + 12},${py + ph - 18}`,
+      fill: "#059669"
+    }), /*#__PURE__*/React.createElement("text", {
+      x: px + pw / 2,
+      y: py + ph / 2,
+      textAnchor: "middle",
+      fontSize: 9,
+      fontWeight: "bold",
+      fill: p.color
+    }, p.label), p.doblez === "izq" && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+      x1: px,
+      y1: py,
+      x2: px,
+      y2: py + ph,
+      stroke: "#DC2626",
+      strokeWidth: 2.5
+    }), /*#__PURE__*/React.createElement("text", {
+      x: px + 3,
+      y: py + 12,
+      fontSize: 7,
+      fill: "#DC2626",
+      fontWeight: "bold"
+    }, "DOBLEZ")));
+  }), /*#__PURE__*/React.createElement("text", {
+    x: 20 + layout.anchoTela * sc / 2,
+    y: 14,
+    textAnchor: "middle",
+    fontSize: 10,
+    fill: "#525252",
+    fontWeight: "bold"
+  }, layout.anchoTela, " cm (ancho de tela)"), /*#__PURE__*/React.createElement("text", {
+    x: 20 + layout.anchoTela * sc + 16,
+    y: 20 + layout.largoNecesario * sc + 15,
+    textAnchor: "end",
+    fontSize: 10,
+    fill: "#525252"
+  }, "Largo necesario: ~", layout.largoNecesario, " cm"));
+}
+
+// ── Componente: Marca de costura SVG ──
+function SewingMark({
+  mark
+}) {
+  if (mark.type === "pinza") {
+    return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+      x1: mark.x1,
+      y1: mark.y1,
+      x2: mark.x2,
+      y2: mark.y2,
+      stroke: COLORS.mark,
+      strokeWidth: 1.5,
+      strokeDasharray: "4 2"
+    }), /*#__PURE__*/React.createElement("line", {
+      x1: mark.x3,
+      y1: mark.y3,
+      x2: mark.x2,
+      y2: mark.y2,
+      stroke: COLORS.mark,
+      strokeWidth: 1.5,
+      strokeDasharray: "4 2"
+    }), /*#__PURE__*/React.createElement("circle", {
+      cx: mark.x2,
+      cy: mark.y2,
+      r: 3,
+      fill: COLORS.mark
+    }), /*#__PURE__*/React.createElement("text", {
+      x: mark.x2,
+      y: mark.y2 - 8,
+      textAnchor: "middle",
+      fontSize: 8,
+      fill: COLORS.mark
+    }, "Pinza"));
+  }
+  if (mark.type === "grano") {
+    const dx = mark.x2 - mark.x1;
+    const dy = mark.y2 - mark.y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const ux = dx / len,
+      uy = dy / len;
+    const ax = mark.x2 - ux * 10,
+      ay = mark.y2 - uy * 10;
+    return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+      x1: mark.x1,
+      y1: mark.y1,
+      x2: mark.x2,
+      y2: mark.y2,
+      stroke: COLORS.grain,
+      strokeWidth: 1.5
+    }), /*#__PURE__*/React.createElement("polygon", {
+      points: `${mark.x2},${mark.y2} ${ax - uy * 4},${ay + ux * 4} ${ax + uy * 4},${ay - ux * 4}`,
+      fill: COLORS.grain
+    }), /*#__PURE__*/React.createElement("text", {
+      x: (mark.x1 + mark.x2) / 2 + 8,
+      y: (mark.y1 + mark.y2) / 2,
+      fontSize: 7,
+      fill: COLORS.grain,
+      transform: `rotate(-90, ${(mark.x1 + mark.x2) / 2 + 8}, ${(mark.y1 + mark.y2) / 2})`
+    }, "HILO"));
+  }
+  if (mark.type === "piquete") {
+    return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("polygon", {
+      points: `${mark.x},${mark.y - 6} ${mark.x - 4},${mark.y + 3} ${mark.x + 4},${mark.y + 3}`,
+      fill: COLORS.notch,
+      stroke: COLORS.notch,
+      strokeWidth: 1
+    }));
+  }
+  if (mark.type === "linea") {
+    return /*#__PURE__*/React.createElement("line", {
+      x1: mark.x1,
+      y1: mark.y1,
+      x2: mark.x2,
+      y2: mark.y2,
+      stroke: COLORS.mark,
+      strokeWidth: 1,
+      strokeDasharray: mark.dashed ? "6 3" : "none",
+      opacity: 0.6
+    });
+  }
+  return null;
+}
+
+// ── Componente: Etiqueta SVG ──
+function PatternLabel({
+  label
+}) {
+  return /*#__PURE__*/React.createElement("text", {
+    x: label.x,
+    y: label.y,
+    textAnchor: "middle",
+    fontSize: label.size || 12,
+    fontWeight: label.size >= 14 ? "bold" : "normal",
+    fill: label.color || COLORS.text,
+    transform: label.rotate ? `rotate(${label.rotate}, ${label.x}, ${label.y})` : undefined,
+    style: {
+      fontFamily: "'Georgia', serif"
+    }
+  }, label.text);
+}
+
+// ── Componente principal ──
+function PatronesFlamenca() {
+  const [selectedPattern, setSelectedPattern] = useState("corpino");
+  const [measures, setMeasures] = useState({
+    ...DEFAULT_MEASURES
+  });
+  const [zoom, setZoom] = useState(1);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showMarks, setShowMarks] = useState(true);
+  const [margenCostura, setMargenCostura] = useState(1.5);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showCuttingGuide, setShowCuttingGuide] = useState(false);
+  const svgRef = useRef(null);
+  const containerRef = useRef(null);
+  const scale = CM_TO_PX * zoom;
+  const pattern = useMemo(() => {
+    const gen = GENERATORS[selectedPattern];
+    if (gen) return gen(measures, scale);
+    return {
+      paths: [],
+      marks: [],
+      labels: [],
+      width: 500,
+      height: 500,
+      name: ""
+    };
+  }, [selectedPattern, measures, scale]);
+  const handleMeasureChange = useCallback((field, value) => {
+    setMeasures(prev => ({
+      ...prev,
+      [field]: parseFloat(value) || 0
+    }));
+  }, []);
+  const handleExportSVG = useCallback(() => {
+    const gen = GENERATORS[selectedPattern];
+    if (!gen) return;
+    const printScale = PRINT_CM_TO_PX;
+    const printPattern = gen(measures, printScale);
+    const margin = margenCostura * printScale;
+    let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="${printPattern.width + margin * 2}px"
+  height="${printPattern.height + margin * 2}px"
+  viewBox="0 0 ${printPattern.width + margin * 2} ${printPattern.height + margin * 2}">
+  <style>
+    text { font-family: Georgia, serif; }
+  </style>
+  <rect width="100%" height="100%" fill="white"/>
+  <!-- Cuadrícula 1cm -->
+  <defs>
+    <pattern id="grid1cm" width="${printScale}" height="${printScale}" patternUnits="userSpaceOnUse">
+      <path d="M ${printScale} 0 L 0 0 0 ${printScale}" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
+    </pattern>
+    <pattern id="grid5cm" width="${printScale * 5}" height="${printScale * 5}" patternUnits="userSpaceOnUse">
+      <path d="M ${printScale * 5} 0 L 0 0 0 ${printScale * 5}" fill="none" stroke="#ccc" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#grid1cm)"/>
+  <rect width="100%" height="100%" fill="url(#grid5cm)"/>
+  <g transform="translate(${margin}, ${margin})">`;
+    printPattern.paths.forEach(p => {
+      svgContent += `\n    <path d="${p.d}" fill="rgba(185,28,28,0.05)" stroke="#B91C1C" stroke-width="2"/>`;
+      if (margenCostura > 0) {
+        svgContent += `\n    <path d="${p.d}" fill="none" stroke="#999" stroke-width="0.5" stroke-dasharray="8 4" transform="translate(${-margin * 0.1}, ${-margin * 0.1}) scale(${1 + margenCostura * 0.01})"/>`;
+      }
+    });
+    printPattern.marks.forEach(m => {
+      if (m.type === "grano") {
+        svgContent += `\n    <line x1="${m.x1}" y1="${m.y1}" x2="${m.x2}" y2="${m.y2}" stroke="#059669" stroke-width="2"/>`;
+      }
+      if (m.type === "piquete") {
+        svgContent += `\n    <polygon points="${m.x},${m.y - 8} ${m.x - 5},${m.y + 4} ${m.x + 5},${m.y + 4}" fill="#D97706"/>`;
+      }
+      if (m.type === "pinza") {
+        svgContent += `\n    <line x1="${m.x1}" y1="${m.y1}" x2="${m.x2}" y2="${m.y2}" stroke="#2563EB" stroke-width="1.5" stroke-dasharray="4 2"/>`;
+        svgContent += `\n    <line x1="${m.x3}" y1="${m.y3}" x2="${m.x2}" y2="${m.y2}" stroke="#2563EB" stroke-width="1.5" stroke-dasharray="4 2"/>`;
+      }
+    });
+    printPattern.labels.forEach(l => {
+      const rot = l.rotate ? ` transform="rotate(${l.rotate}, ${l.x}, ${l.y})"` : "";
+      svgContent += `\n    <text x="${l.x}" y="${l.y}" text-anchor="middle" font-size="${(l.size || 12) * 2}" fill="${l.color || '#1C1917'}"${rot}>${l.text}</text>`;
+    });
+    svgContent += `\n    <text x="10" y="${printPattern.height - 10}" font-size="14" fill="#999">Escala 1:1 — Imprimir al 100% sin ajuste</text>`;
+    svgContent += `\n  </g>\n</svg>`;
+    const blob = new Blob([svgContent], {
+      type: "image/svg+xml"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `patron_${selectedPattern}_${Date.now()}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [selectedPattern, measures, margenCostura]);
+  const handleExportPDF = useCallback(() => {
+    const printWindow = window.open("", "_blank");
+    const gen = GENERATORS[selectedPattern];
+    if (!gen || !printWindow) return;
+    const printScale = 3;
+    const printPattern = gen(measures, printScale);
+    printWindow.document.write(`
+          <!DOCTYPE html>
+          <html><head><title>Patrón - ${printPattern.name}</title>
+          <style>
+            @page { size: auto; margin: 10mm; }
+            body { margin: 0; display: flex; justify-content: center; align-items: flex-start; }
+            svg { max-width: 100%; height: auto; }
+            @media print { body { margin: 0; } }
+          </style></head><body>
+          <svg width="${printPattern.width}" height="${printPattern.height}" viewBox="0 0 ${printPattern.width} ${printPattern.height}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="white"/>
+            ${printPattern.paths.map(p => `<path d="${p.d}" fill="rgba(185,28,28,0.05)" stroke="#B91C1C" stroke-width="1.5"/>`).join("\n")}
+            ${printPattern.marks.map(m => {
+      if (m.type === "grano") return `<line x1="${m.x1}" y1="${m.y1}" x2="${m.x2}" y2="${m.y2}" stroke="#059669" stroke-width="1.5"/>`;
+      if (m.type === "piquete") return `<polygon points="${m.x},${m.y - 6} ${m.x - 4},${m.y + 3} ${m.x + 4},${m.y + 3}" fill="#D97706"/>`;
+      if (m.type === "pinza") return `<line x1="${m.x1}" y1="${m.y1}" x2="${m.x2}" y2="${m.y2}" stroke="#2563EB" stroke-width="1" stroke-dasharray="4 2"/><line x1="${m.x3}" y1="${m.y3}" x2="${m.x2}" y2="${m.y2}" stroke="#2563EB" stroke-width="1" stroke-dasharray="4 2"/>`;
+      return "";
+    }).join("\n")}
+            ${printPattern.labels.map(l => `<text x="${l.x}" y="${l.y}" text-anchor="middle" font-size="${l.size || 12}" font-family="Georgia, serif" fill="${l.color || "#1C1917"}" font-weight="${(l.size || 0) >= 14 ? "bold" : "normal"}" ${l.rotate ? `transform="rotate(${l.rotate}, ${l.x}, ${l.y})"` : ""}>${l.text}</text>`).join("\n")}
+          </svg>
+          </body></html>
+        `);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 500);
+  }, [selectedPattern, measures]);
+  const gridSpacing = 10 * scale;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      height: "100vh",
+      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+      background: COLORS.bg,
+      color: COLORS.text,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: sidebarOpen ? 320 : 0,
+      minWidth: sidebarOpen ? 320 : 0,
+      transition: "all 0.3s ease",
+      background: COLORS.surface,
+      borderRight: `1px solid ${COLORS.grid}`,
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px 16px 12px",
+      borderBottom: `1px solid ${COLORS.grid}`
+    }
+  }, /*#__PURE__*/React.createElement("h1", {
+    style: {
+      margin: 0,
+      fontSize: 20,
+      color: COLORS.primary,
+      fontFamily: "Georgia, serif",
+      letterSpacing: 1
+    }
+  }, "\uD83D\uDC83 Patrones Flamenca"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: "4px 0 0",
+      fontSize: 11,
+      color: COLORS.textLight
+    }
+  }, "Generador de patrones de costura")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      padding: "12px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+      color: COLORS.textLight,
+      marginBottom: 8
+    }
+  }, "Tipo de patr\xF3n"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 6
+    }
+  }, PATTERN_TYPES.map(pt => /*#__PURE__*/React.createElement("button", {
+    key: pt.id,
+    onClick: () => setSelectedPattern(pt.id),
+    style: {
+      padding: "10px 8px",
+      border: selectedPattern === pt.id ? `2px solid ${COLORS.primary}` : `1px solid ${COLORS.grid}`,
+      borderRadius: 8,
+      background: selectedPattern === pt.id ? COLORS.primaryLight : COLORS.surface,
+      cursor: "pointer",
+      textAlign: "center",
+      transition: "all 0.2s"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20
+    }
+  }, pt.icon), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 600,
+      marginTop: 2,
+      color: selectedPattern === pt.id ? COLORS.primary : COLORS.text
+    }
+  }, pt.name))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+      color: COLORS.textLight,
+      marginBottom: 8
+    }
+  }, "Medidas"), (FIELDS_BY_PATTERN[selectedPattern] || []).map(field => /*#__PURE__*/React.createElement("div", {
+    key: field,
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: COLORS.textLight,
+      marginBottom: 2
+    }
+  }, FIELD_LABELS[field]), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: measures[field],
+    onChange: e => handleMeasureChange(field, e.target.value),
+    step: field === "amplitudVolante" ? 0.5 : 1,
+    min: field === "numVolantes" || field === "numGodets" ? 1 : 0,
+    style: {
+      width: "100%",
+      padding: "8px 10px",
+      border: `1px solid ${COLORS.grid}`,
+      borderRadius: 6,
+      fontSize: 13,
+      background: COLORS.bg,
+      boxSizing: "border-box",
+      outline: "none"
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+      color: COLORS.textLight,
+      marginBottom: 8
+    }
+  }, "Opciones"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: showGrid,
+    onChange: e => setShowGrid(e.target.checked),
+    id: "grid"
+  }), /*#__PURE__*/React.createElement("label", {
+    htmlFor: "grid",
+    style: {
+      fontSize: 12
+    }
+  }, "Mostrar cuadr\xEDcula")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: showMarks,
+    onChange: e => setShowMarks(e.target.checked),
+    id: "marks"
+  }), /*#__PURE__*/React.createElement("label", {
+    htmlFor: "marks",
+    style: {
+      fontSize: 12
+    }
+  }, "Marcas de costura")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      color: COLORS.textLight,
+      marginBottom: 2
+    }
+  }, "Margen de costura (cm)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: margenCostura,
+    onChange: e => setMargenCostura(parseFloat(e.target.value) || 0),
+    step: 0.5,
+    min: 0,
+    max: 5,
+    style: {
+      width: "100%",
+      padding: "8px 10px",
+      border: `1px solid ${COLORS.grid}`,
+      borderRadius: 6,
+      fontSize: 13,
+      background: COLORS.bg,
+      boxSizing: "border-box"
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+      color: COLORS.textLight,
+      marginBottom: 6
+    }
+  }, "Zoom: ", (zoom * 100).toFixed(0), "%"), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: 0.3,
+    max: 3,
+    step: 0.1,
+    value: zoom,
+    onChange: e => setZoom(parseFloat(e.target.value)),
+    style: {
+      width: "100%",
+      accentColor: COLORS.primary
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 16px",
+      borderTop: `1px solid ${COLORS.grid}`,
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: handleExportSVG,
+    style: {
+      flex: 1,
+      padding: "10px",
+      background: COLORS.primary,
+      color: "white",
+      border: "none",
+      borderRadius: 8,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCE5 SVG Escala 1:1"), /*#__PURE__*/React.createElement("button", {
+    onClick: handleExportPDF,
+    style: {
+      flex: 1,
+      padding: "10px",
+      background: COLORS.accent,
+      color: "white",
+      border: "none",
+      borderRadius: 8,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDDA8\uFE0F Imprimir"))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSidebarOpen(!sidebarOpen),
+    style: {
+      position: "absolute",
+      left: sidebarOpen ? 308 : 4,
+      top: 12,
+      zIndex: 10,
+      width: 28,
+      height: 28,
+      borderRadius: "50%",
+      border: `1px solid ${COLORS.grid}`,
+      background: COLORS.surface,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 14,
+      transition: "left 0.3s ease",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.1)"
+    }
+  }, sidebarOpen ? "◀" : "▶"), /*#__PURE__*/React.createElement("div", {
+    ref: containerRef,
+    style: {
+      flex: 1,
+      overflow: "auto",
+      position: "relative",
+      background: COLORS.bg
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "sticky",
+      top: 0,
+      zIndex: 5,
+      background: "rgba(255,247,237,0.9)",
+      backdropFilter: "blur(8px)",
+      padding: "12px 20px",
+      borderBottom: `1px solid ${COLORS.grid}`,
+      display: "flex",
+      alignItems: "center",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 22
+    }
+  }, PATTERN_TYPES.find(p => p.id === selectedPattern)?.icon), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontFamily: "Georgia, serif"
+    }
+  }, pattern.name), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 11,
+      color: COLORS.textLight
+    }
+  }, PATTERN_TYPES.find(p => p.id === selectedPattern)?.desc)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      fontSize: 11,
+      color: COLORS.textLight
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDD34 Pinza"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: COLORS.grain
+    }
+  }, "\uD83D\uDFE2 Hilo"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: COLORS.notch
+    }
+  }, "\uD83D\uDFE0 Piquete")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowCuttingGuide(!showCuttingGuide),
+    style: {
+      padding: "6px 14px",
+      background: showCuttingGuide ? COLORS.primary : "transparent",
+      color: showCuttingGuide ? "white" : COLORS.primary,
+      border: `2px solid ${COLORS.primary}`,
+      borderRadius: 20,
+      fontSize: 12,
+      fontWeight: 600,
+      cursor: "pointer",
+      transition: "all 0.2s",
+      whiteSpace: "nowrap"
+    }
+  }, "\u2702\uFE0F Gu\xEDa de Corte"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20,
+      display: "flex",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    ref: svgRef,
+    width: Math.max(pattern.width + 40, 600),
+    height: Math.max(pattern.height + 40, 400),
+    viewBox: `0 0 ${Math.max(pattern.width + 40, 600)} ${Math.max(pattern.height + 40, 400)}`,
+    style: {
+      background: "white",
+      borderRadius: 12,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+      border: `1px solid ${COLORS.grid}`
+    }
+  }, showGrid && /*#__PURE__*/React.createElement("g", {
+    opacity: 0.4
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("pattern", {
+    id: "smallGrid",
+    width: gridSpacing,
+    height: gridSpacing,
+    patternUnits: "userSpaceOnUse"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: `M ${gridSpacing} 0 L 0 0 0 ${gridSpacing}`,
+    fill: "none",
+    stroke: COLORS.grid,
+    strokeWidth: 0.5
+  })), /*#__PURE__*/React.createElement("pattern", {
+    id: "bigGrid",
+    width: gridSpacing * 5,
+    height: gridSpacing * 5,
+    patternUnits: "userSpaceOnUse"
+  }, /*#__PURE__*/React.createElement("rect", {
+    width: gridSpacing * 5,
+    height: gridSpacing * 5,
+    fill: "url(#smallGrid)"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: `M ${gridSpacing * 5} 0 L 0 0 0 ${gridSpacing * 5}`,
+    fill: "none",
+    stroke: "#ccc",
+    strokeWidth: 1
+  }))), /*#__PURE__*/React.createElement("rect", {
+    width: "100%",
+    height: "100%",
+    fill: "url(#bigGrid)",
+    rx: 12
+  })), pattern.paths.map((p, i) => /*#__PURE__*/React.createElement("g", {
+    key: i
+  }, /*#__PURE__*/React.createElement("path", {
+    d: p.d,
+    fill: COLORS.patternFill,
+    stroke: COLORS.pattern,
+    strokeWidth: 2,
+    strokeLinejoin: "round"
+  }), margenCostura > 0 && /*#__PURE__*/React.createElement("path", {
+    d: p.d,
+    fill: "none",
+    stroke: "#aaa",
+    strokeWidth: 0.8,
+    strokeDasharray: "6 4",
+    transform: `translate(${-margenCostura * scale * 0.03}, ${-margenCostura * scale * 0.03}) scale(${1 + margenCostura * 0.015})`
+  }))), showMarks && pattern.marks.map((m, i) => /*#__PURE__*/React.createElement(SewingMark, {
+    key: i,
+    mark: m
+  })), pattern.labels.map((l, i) => /*#__PURE__*/React.createElement(PatternLabel, {
+    key: i,
+    label: l
+  })), /*#__PURE__*/React.createElement("g", {
+    transform: `translate(10, ${Math.max(pattern.height + 10, 380)})`
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: 0,
+    y1: 0,
+    x2: 10 * scale,
+    y2: 0,
+    stroke: COLORS.text,
+    strokeWidth: 2
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: 0,
+    y1: -4,
+    x2: 0,
+    y2: 4,
+    stroke: COLORS.text,
+    strokeWidth: 2
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: 10 * scale,
+    y1: -4,
+    x2: 10 * scale,
+    y2: 4,
+    stroke: COLORS.text,
+    strokeWidth: 2
+  }), /*#__PURE__*/React.createElement("text", {
+    x: 5 * scale,
+    y: -6,
+    textAnchor: "middle",
+    fontSize: 10,
+    fill: COLORS.textLight
+  }, "10 cm")))), showCuttingGuide && CUTTING_GUIDES[selectedPattern] && (() => {
+    const guide = CUTTING_GUIDES[selectedPattern];
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "0 20px 30px",
+        maxWidth: 900,
+        margin: "0 auto"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: COLORS.surface,
+        borderRadius: 16,
+        boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+        border: `1px solid ${COLORS.grid}`,
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: `linear-gradient(135deg, ${COLORS.primaryDark}, ${COLORS.primary})`,
+        padding: "20px 24px",
+        color: "white"
+      }
+    }, /*#__PURE__*/React.createElement("h3", {
+      style: {
+        margin: 0,
+        fontSize: 18,
+        fontFamily: "Georgia, serif"
+      }
+    }, "\u2702\uFE0F ", guide.title), /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "6px 0 0",
+        fontSize: 12,
+        opacity: 0.9
+      }
+    }, "Instrucciones de colocaci\xF3n y corte de la tela")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "20px 24px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 12,
+        marginBottom: 20
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 14,
+        background: COLORS.accentLight,
+        borderRadius: 10,
+        border: `1px solid ${COLORS.accent}33`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        color: COLORS.accent,
+        marginBottom: 4
+      }
+    }, "Tela recomendada"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: COLORS.text,
+        lineHeight: 1.4
+      }
+    }, guide.telaRecomendada)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 14,
+        background: COLORS.primaryLight,
+        borderRadius: 10,
+        border: `1px solid ${COLORS.primary}33`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        color: COLORS.primary,
+        marginBottom: 4
+      }
+    }, "Preparaci\xF3n"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: COLORS.text,
+        lineHeight: 1.4
+      }
+    }, "Ancho de tela: ", guide.anchoTela, " cm", guide.dobleTela ? " — Tela doblada derecho con derecho" : " — Tela en una sola capa"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 20
+      }
+    }, /*#__PURE__*/React.createElement("h4", {
+      style: {
+        margin: "0 0 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        color: COLORS.text,
+        fontFamily: "Georgia, serif"
+      }
+    }, "Piezas a cortar"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8
+      }
+    }, guide.piezas.map((pieza, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
+        padding: "10px 14px",
+        background: COLORS.bg,
+        borderRadius: 8,
+        border: `1px solid ${COLORS.grid}`
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 32,
+        height: 32,
+        borderRadius: 8,
+        background: COLORS.primary,
+        color: "white",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: 14
+      }
+    }, typeof pieza.cantidad === "number" ? pieza.cantidad : "?"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 600,
+        fontSize: 13,
+        color: COLORS.text
+      }
+    }, pieza.nombre, pieza.alDoblez && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 8,
+        fontSize: 10,
+        color: COLORS.primary,
+        fontWeight: 400
+      }
+    }, "\uD83D\uDCD0 Al doblez")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: COLORS.textLight,
+        marginTop: 2,
+        lineHeight: 1.4
+      }
+    }, pieza.notas)))))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 20
+      }
+    }, /*#__PURE__*/React.createElement("h4", {
+      style: {
+        margin: "0 0 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        color: COLORS.text,
+        fontFamily: "Georgia, serif"
+      }
+    }, "Colocaci\xF3n sobre la tela"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "#FAFAF9",
+        borderRadius: 10,
+        padding: 12,
+        border: `1px solid ${COLORS.grid}`,
+        display: "flex",
+        justifyContent: "center"
+      }
+    }, /*#__PURE__*/React.createElement(FabricLayoutDiagram, {
+      guide: guide,
+      measures: measures
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 16,
+        marginTop: 8,
+        justifyContent: "center",
+        fontSize: 10,
+        color: COLORS.textLight
+      }
+    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-block",
+        width: 12,
+        height: 3,
+        background: "#DC2626",
+        marginRight: 4,
+        verticalAlign: "middle"
+      }
+    }), " Doblez"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-block",
+        width: 12,
+        height: 3,
+        background: "#737373",
+        marginRight: 4,
+        verticalAlign: "middle"
+      }
+    }), " Orillo"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-block",
+        width: 12,
+        height: 3,
+        background: "#059669",
+        marginRight: 4,
+        verticalAlign: "middle"
+      }
+    }), " Hilo de tela"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 20
+      }
+    }, /*#__PURE__*/React.createElement("h4", {
+      style: {
+        margin: "0 0 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        color: COLORS.text,
+        fontFamily: "Georgia, serif"
+      }
+    }, "Pasos para el corte"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 6
+      }
+    }, guide.pasos.map((paso, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        padding: "8px 12px",
+        background: i % 2 === 0 ? COLORS.bg : "transparent",
+        borderRadius: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 24,
+        height: 24,
+        borderRadius: "50%",
+        background: COLORS.primary,
+        color: "white",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700,
+        fontSize: 11,
+        flexShrink: 0
+      }
+    }, i + 1), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: COLORS.text,
+        lineHeight: 1.5,
+        paddingTop: 3
+      }
+    }, paso))))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: `linear-gradient(135deg, ${COLORS.primaryLight}, ${COLORS.accentLight})`,
+        borderRadius: 12,
+        padding: 18,
+        border: `1px solid ${COLORS.primary}22`
+      }
+    }, /*#__PURE__*/React.createElement("h4", {
+      style: {
+        margin: "0 0 10px",
+        fontSize: 13,
+        fontWeight: 700,
+        color: COLORS.primaryDark,
+        fontFamily: "Georgia, serif"
+      }
+    }, "\uD83D\uDC83 Consejos especiales para flamenca"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8
+      }
+    }, guide.consejosFlamenca.map((consejo, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: COLORS.primary,
+        fontSize: 14,
+        lineHeight: 1,
+        flexShrink: 0
+      }
+    }, "*"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: COLORS.primaryDark,
+        lineHeight: 1.5
+      }
+    }, consejo))))))));
+  })()));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(PatronesFlamenca, null));
+
+  </script>
+</body>
+</html>
