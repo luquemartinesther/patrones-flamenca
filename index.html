@@ -274,73 +274,36 @@ function generateVolante(m, scale) {
   const rOuterCm = rInnerCm + m.alturaVolante;
   const diametroDona = rOuterCm * 2;
 
-  // Cálculo automático de coronas:
-  // Si la dona completa cabe en el ancho de tela → 1 corona de 360°
-  // Si no cabe → calcular cuántas coronas parciales hacen falta
-  let numCoronas, gradosPorCorona;
+  // Cálculo automático de coronas según ancho de tela
+  let numCoronas;
   if (diametroDona <= anchoTela) {
     numCoronas = 1;
-    gradosPorCorona = 360;
   } else {
-    // La corona parcial máxima que cabe en el ancho de tela
-    // El ancho de tela limita el diámetro → usamos semicoronas o secciones
-    const maxRadioQueCabe = anchoTela / 2;
-    // Ángulo máximo que cabe: basado en la cuerda que cabe en el ancho de tela
-    // Para una sección que quepa: el ancho de la sección ≈ 2 × rOuter × sin(ángulo/2)
-    // Despejando: ángulo = 2 × arcsin(anchoTela / (2 × rOuterCm))
     const ratio = Math.min(1, anchoTela / (2 * rOuterCm));
-    gradosPorCorona = Math.floor(2 * Math.asin(ratio) * 180 / Math.PI);
-    gradosPorCorona = Math.max(gradosPorCorona, 30); // mínimo 30°
-    numCoronas = Math.ceil(360 / gradosPorCorona);
-    gradosPorCorona = 360 / numCoronas; // repartir uniformemente
+    const gradosMax = Math.max(Math.floor(2 * Math.asin(ratio) * 180 / Math.PI), 30);
+    numCoronas = Math.ceil(360 / gradosMax);
   }
 
   const rInner = rInnerCm * s;
   const rOuter = rOuterCm * s;
 
-  // Dibujar la dona (completa o una sección representativa)
-  const cx = rOuter + 50, cy = rOuter + 50;
+  // Siempre dibujar la dona completa (360°)
+  const cx = rOuter + 40, cy = rOuter + 40;
   const paths = [];
   const marks = [];
   const labels = [];
 
-  if (numCoronas === 1) {
-    // Dona completa (360°) — dos semicírculos para SVG
-    const outerArc1 = arcPath(cx, cy, rOuter, 0, 179.99);
-    const outerArc2 = arcPath(cx, cy, rOuter, 180, 359.99);
-    const innerArc1 = arcPath(cx, cy, rInner, 359.99, 180, 0);
-    const innerArc2 = arcPath(cx, cy, rInner, 179.99, 0, 0);
-    const innerStart = polarToCart(cx, cy, rInner, 359.99);
-    const outerStart = polarToCart(cx, cy, rOuter, 0);
-    const outerMid = polarToCart(cx, cy, rOuter, 179.99);
-    const d = `${outerArc1} L ${outerMid.x} ${outerMid.y} ${outerArc2} L ${innerStart.x} ${innerStart.y} ${innerArc1} ${innerArc2} L ${outerStart.x} ${outerStart.y} Z`;
-    paths.push({ d, label: "Volante Circular" });
-  } else {
-    // Dibujar una sección representativa + indicar que hay más
-    const startA = 90 - gradosPorCorona / 2;
-    const endA = 90 + gradosPorCorona / 2;
-    const outerArc = arcPath(cx, cy, rOuter, startA, endA);
-    const innerArc = arcPath(cx, cy, rInner, endA, startA, 0);
-    const eI = polarToCart(cx, cy, rInner, endA);
-    const sO = polarToCart(cx, cy, rOuter, startA);
-    const d = `${outerArc} L ${eI.x} ${eI.y} ${innerArc} L ${sO.x} ${sO.y} Z`;
-    paths.push({ d, label: "Sección de corona" });
+  const outerArc1 = arcPath(cx, cy, rOuter, 0, 179.99);
+  const outerArc2 = arcPath(cx, cy, rOuter, 180, 359.99);
+  const innerArc1 = arcPath(cx, cy, rInner, 359.99, 180, 0);
+  const innerArc2 = arcPath(cx, cy, rInner, 179.99, 0, 0);
+  const innerStart = polarToCart(cx, cy, rInner, 359.99);
+  const outerStart = polarToCart(cx, cy, rOuter, 0);
+  const outerMid = polarToCart(cx, cy, rOuter, 179.99);
+  const d = `${outerArc1} L ${outerMid.x} ${outerMid.y} ${outerArc2} L ${innerStart.x} ${innerStart.y} ${innerArc1} ${innerArc2} L ${outerStart.x} ${outerStart.y} Z`;
+  paths.push({ d, label: "Volante Circular" });
 
-    // Dibujar líneas fantasma del resto de secciones
-    for (let i = 1; i < numCoronas; i++) {
-      const offset = i * gradosPorCorona;
-      const sA = startA + offset;
-      const eA = endA + offset;
-      const ghostOuter = arcPath(cx, cy, rOuter, sA, eA);
-      const ghostInner = arcPath(cx, cy, rInner, eA, sA, 0);
-      const gEI = polarToCart(cx, cy, rInner, eA);
-      const gSO = polarToCart(cx, cy, rOuter, sA);
-      const gd = `${ghostOuter} L ${gEI.x} ${gEI.y} ${ghostInner} L ${gSO.x} ${gSO.y} Z`;
-      paths.push({ d: gd, label: "", ghost: true });
-    }
-  }
-
-  // Línea de corte para abrir la dona (radio)
+  // Línea de corte para abrir la dona
   marks.push({
     type: "linea",
     x1: cx + rInner, y1: cy,
@@ -353,35 +316,30 @@ function generateVolante(m, scale) {
   const grainEnd = polarToCart(cx, cy, rOuter - 5 * s, 270);
   marks.push({ type: "grano", x1: grainStart.x, y1: grainStart.y, x2: grainEnd.x, y2: grainEnd.y });
 
-  // Piquetes de unión en el borde interior
-  const piqueteInterval = numCoronas === 1 ? 90 : gradosPorCorona;
-  for (let a = 0; a < 360; a += piqueteInterval) {
+  // Piquetes de unión en el borde interior (cada 90°)
+  for (let a = 0; a < 360; a += 90) {
     const p = polarToCart(cx, cy, rInner, a);
     marks.push({ type: "piquete", x: p.x, y: p.y });
   }
 
-  // Etiquetas con toda la info calculada
+  // Etiquetas
   labels.push({ text: "VOLANTE CIRCULAR", x: cx, y: cy - 18, size: 14 });
   labels.push({ text: `R interior: ${rInnerCm.toFixed(1)} cm`, x: cx, y: cy, size: 10, color: COLORS.accent });
   labels.push({ text: `R exterior: ${rOuterCm.toFixed(1)} cm`, x: cx, y: cy + 14, size: 10, color: COLORS.accent });
   labels.push({ text: `Altura: ${m.alturaVolante} cm`, x: cx, y: cy + 28, size: 10, color: COLORS.accent });
   labels.push({ text: `Contorno: ${contorno.toFixed(1)} cm (con margen)`, x: cx, y: cy + 44, size: 9, color: COLORS.textLight });
 
+  // Info de coronas calculada automáticamente
   if (numCoronas === 1) {
-    labels.push({ text: `1 corona completa — cabe en tela de ${anchoTela} cm`, x: cx, y: cy + 58, size: 9, color: COLORS.grain });
-    labels.push({ text: "Cortar aquí para abrir", x: cx + rOuter + 8, y: cy - 4, size: 8, color: COLORS.mark });
+    labels.push({ text: "1 corona completa", x: cx, y: cy + 60, size: 10, color: COLORS.grain });
   } else {
-    labels.push({ text: `${numCoronas} coronas de ${gradosPorCorona.toFixed(0)}° cada una`, x: cx, y: cy + 58, size: 10, color: COLORS.mark });
-    labels.push({ text: `La dona no cabe entera (Ø ${diametroDona.toFixed(0)} cm > ${anchoTela} cm tela)`, x: cx, y: cy + 72, size: 9, color: COLORS.primary });
-    labels.push({ text: `Cortar ${numCoronas} secciones y unir por los radios`, x: cx, y: cy + 86, size: 9, color: COLORS.mark });
+    labels.push({ text: `Necesitas ${numCoronas} coronas`, x: cx, y: cy + 60, size: 10, color: COLORS.mark });
+    labels.push({ text: `(Ø ${diametroDona.toFixed(0)} cm > ancho tela ${anchoTela} cm)`, x: cx, y: cy + 74, size: 9, color: COLORS.primary });
   }
 
-  // Metros de tela necesarios
-  const altoCorona = numCoronas === 1 ? diametroDona : rOuterCm * 2;
-  const metrosTela = ((altoCorona + 5) * (numCoronas === 1 ? 1 : numCoronas)) / 100;
-  labels.push({ text: `Tela necesaria: ~${metrosTela.toFixed(2)} m (ancho ${anchoTela} cm)`, x: cx, y: cy + (numCoronas === 1 ? 72 : 102), size: 9, color: COLORS.textLight });
+  labels.push({ text: "Cortar aquí para abrir", x: cx + rOuter + 8, y: cy - 4, size: 8, color: COLORS.mark });
 
-  const totalSize = (rOuter + 60) * 2;
+  const totalSize = (rOuter + 50) * 2;
   return {
     paths, marks, labels,
     width: totalSize, height: totalSize,
