@@ -67,7 +67,7 @@ const PATTERN_TYPES = [{
   id: "volante",
   name: "Volante Circular",
   icon: "🌀",
-  desc: "Volante suelto parametrizado"
+  desc: "Volante de plato (dona) — R = contorno / 2π"
 }, {
   id: "manga",
   name: "Manga",
@@ -99,7 +99,9 @@ const DEFAULT_MEASURES = {
   contornoMuneca: 16,
   alturaVolante: 25,
   numVolantes: 3,
-  amplitudVolante: 2.5,
+  contornoVolante: 200,
+  margenCosturaVolante: 1.5,
+  numCoronas: 1,
   largoCola: 150,
   numGodets: 6
 };
@@ -265,79 +267,74 @@ function generateCorpino(m, scale) {
 }
 function generateVolante(m, scale) {
   const s = scale;
-  const altura = m.alturaVolante * s;
-  const amplitud = m.amplitudVolante;
-  const baseCirc = m.cadera * Math.PI;
-  const rInner = baseCirc / amplitud / (2 * Math.PI) * s;
-  const rOuter = rInner + altura;
-  const cx = rOuter + 30,
-    cy = rOuter + 30;
-  const angleSpan = Math.min(340, amplitud * 90);
-  const startA = -angleSpan / 2 + 90;
-  const endA = angleSpan / 2 + 90;
+  // Fórmula correcta: R interior = contorno / (2 × π)
+  // El contorno es la medida del borde de la prenda donde se cose el volante
+  const contorno = m.contornoVolante + m.margenCosturaVolante * 2;
+  const rInnerCm = contorno / (2 * Math.PI);
+  const rOuterCm = rInnerCm + m.alturaVolante;
+  const rInner = rInnerCm * s;
+  const rOuter = rOuterCm * s;
+  const numCoronas = m.numCoronas || 1;
+
+  // La dona es un círculo completo (360°)
+  const cx = rOuter + 40, cy = rOuter + 40;
   const paths = [];
   const marks = [];
   const labels = [];
-  const outerArc = arcPath(cx, cy, rOuter, startA, endA);
-  const innerArc = arcPath(cx, cy, rInner, endA, startA, 0);
-  const sI = polarToCart(cx, cy, rInner, startA);
-  const eO = polarToCart(cx, cy, rOuter, endA);
-  const sO = polarToCart(cx, cy, rOuter, startA);
-  const eI = polarToCart(cx, cy, rInner, endA);
-  const d = `${outerArc} L ${eI.x} ${eI.y} ${innerArc} L ${sO.x} ${sO.y} Z`;
-  paths.push({
-    d,
-    label: "Volante"
-  });
 
-  // Hilo de la tela
-  const grainStart = polarToCart(cx, cy, rInner + 10, 90);
-  const grainEnd = polarToCart(cx, cy, rOuter - 10, 90);
+  // Dibujar la dona completa (360°) — arco exterior + arco interior
+  // Usamos dos semicírculos para trazar un círculo completo en SVG
+  const outerArc1 = arcPath(cx, cy, rOuter, 0, 179.99);
+  const outerArc2 = arcPath(cx, cy, rOuter, 180, 359.99);
+  const innerArc1 = arcPath(cx, cy, rInner, 359.99, 180, 0);
+  const innerArc2 = arcPath(cx, cy, rInner, 179.99, 0, 0);
+
+  // Punto de conexión entre arco exterior e interior
+  const outerEnd = polarToCart(cx, cy, rOuter, 359.99);
+  const innerStart = polarToCart(cx, cy, rInner, 359.99);
+  const innerEnd = polarToCart(cx, cy, rInner, 0);
+  const outerStart = polarToCart(cx, cy, rOuter, 0);
+
+  const d = `${outerArc1} L ${polarToCart(cx, cy, rOuter, 179.99).x} ${polarToCart(cx, cy, rOuter, 179.99).y} ${outerArc2} L ${innerStart.x} ${innerStart.y} ${innerArc1} ${innerArc2} L ${outerStart.x} ${outerStart.y} Z`;
+  paths.push({ d, label: "Volante Circular" });
+
+  // Línea de corte para abrir la dona (radio)
   marks.push({
-    type: "grano",
-    x1: grainStart.x,
-    y1: grainStart.y,
-    x2: grainEnd.x,
-    y2: grainEnd.y
+    type: "linea",
+    x1: cx + rInner, y1: cy,
+    x2: cx + rOuter, y2: cy,
+    dashed: true
   });
 
-  // Piquetes de unión
-  for (let a = startA; a <= endA; a += (endA - startA) / 4) {
+  // Hilo de la tela (flecha vertical hacia abajo desde el centro)
+  const grainStart = polarToCart(cx, cy, rInner + 5 * s, 270);
+  const grainEnd = polarToCart(cx, cy, rOuter - 5 * s, 270);
+  marks.push({ type: "grano", x1: grainStart.x, y1: grainStart.y, x2: grainEnd.x, y2: grainEnd.y });
+
+  // Piquetes de unión en el borde interior (cada 90°)
+  for (let a = 0; a < 360; a += 90) {
     const p = polarToCart(cx, cy, rInner, a);
-    marks.push({
-      type: "piquete",
-      x: p.x,
-      y: p.y
-    });
+    marks.push({ type: "piquete", x: p.x, y: p.y });
   }
-  labels.push({
-    text: "VOLANTE CIRCULAR",
-    x: cx,
-    y: cy,
-    size: 14
-  });
-  labels.push({
-    text: `Altura: ${m.alturaVolante} cm`,
-    x: cx,
-    y: cy + 18,
-    size: 10,
-    color: COLORS.accent
-  });
-  labels.push({
-    text: `Amplitud: ×${amplitud}`,
-    x: cx,
-    y: cy + 32,
-    size: 10,
-    color: COLORS.accent
-  });
-  const totalSize = (rOuter + 30) * 2;
+
+  // Etiquetas
+  labels.push({ text: "VOLANTE CIRCULAR", x: cx, y: cy - 10, size: 14 });
+  labels.push({ text: `R interior: ${rInnerCm.toFixed(1)} cm`, x: cx, y: cy + 8, size: 10, color: COLORS.accent });
+  labels.push({ text: `R exterior: ${rOuterCm.toFixed(1)} cm`, x: cx, y: cy + 22, size: 10, color: COLORS.accent });
+  labels.push({ text: `Altura: ${m.alturaVolante} cm`, x: cx, y: cy + 36, size: 10, color: COLORS.accent });
+  labels.push({ text: `Contorno costura: ${contorno.toFixed(1)} cm`, x: cx, y: cy + 50, size: 9, color: COLORS.textLight });
+  if (numCoronas > 1) {
+    labels.push({ text: `Cortar ${numCoronas} coronas e unirlas`, x: cx, y: cy + 64, size: 9, color: COLORS.mark });
+  }
+
+  // Flecha indicando línea de corte
+  labels.push({ text: "Cortar aquí para abrir", x: cx + rOuter + 8, y: cy - 4, size: 8, color: COLORS.mark });
+
+  const totalSize = (rOuter + 50) * 2;
   return {
-    paths,
-    marks,
-    labels,
-    width: totalSize,
-    height: totalSize,
-    name: "Volante Circular"
+    paths, marks, labels,
+    width: totalSize, height: totalSize,
+    name: "Volante Circular (Plato)"
   };
 }
 function generateFaldaVolantes(m, scale) {
@@ -416,34 +413,45 @@ function generateFaldaVolantes(m, scale) {
     }
   }
 
-  // Volante individual (miniatura a la derecha)
+  // Volante individual (miniatura dona a la derecha)
+  // Fórmula: R interior = contorno de la falda en esa línea / (2π)
+  const contornoFalda = m.cadera * Math.PI; // aprox contorno completo a nivel de cadera
+  const vr1cm = contornoFalda / (2 * Math.PI);
+  const vr2cm = vr1cm + m.alturaVolante;
+  const miniScale = Math.min(s, (faldaBase * 0.4) / vr2cm); // escalar para que quepa
+  const vr1 = vr1cm * miniScale;
+  const vr2 = vr2cm * miniScale;
   const vox = ox + anchoAbajo + 25 * s;
   const voy = oy + 10 * s;
-  const vr1 = 15 * s;
-  const vr2 = vr1 + altVolante * 0.8;
-  const vOuterArc = arcPath(vox + vr2, voy + vr2, vr2, 200, 340);
-  const vInnerArc = arcPath(vox + vr2, voy + vr2, vr1, 340, 200, 0);
-  const vs1 = polarToCart(vox + vr2, voy + vr2, vr1, 200);
-  const ve1 = polarToCart(vox + vr2, voy + vr2, vr2, 340);
-  const vs2 = polarToCart(vox + vr2, voy + vr2, vr2, 200);
-  const ve2 = polarToCart(vox + vr2, voy + vr2, vr1, 340);
-  const vPath = `${vOuterArc} L ${ve2.x} ${ve2.y} ${vInnerArc} L ${vs2.x} ${vs2.y} Z`;
-  paths.push({
-    d: vPath,
-    label: "Volante"
-  });
+  const vcx = vox + vr2, vcy = voy + vr2;
+
+  // Dona completa (dos semicírculos)
+  const vOuter1 = arcPath(vcx, vcy, vr2, 0, 179.99);
+  const vOuter2 = arcPath(vcx, vcy, vr2, 180, 359.99);
+  const vInner1 = arcPath(vcx, vcy, vr1, 359.99, 180, 0);
+  const vInner2 = arcPath(vcx, vcy, vr1, 179.99, 0, 0);
+  const vConnOuter = polarToCart(vcx, vcy, vr2, 359.99);
+  const vConnInner = polarToCart(vcx, vcy, vr1, 359.99);
+  const vStartOuter = polarToCart(vcx, vcy, vr2, 0);
+  const vStartInner = polarToCart(vcx, vcy, vr1, 0);
+
+  const vPath = `${vOuter1} L ${polarToCart(vcx, vcy, vr2, 179.99).x} ${polarToCart(vcx, vcy, vr2, 179.99).y} ${vOuter2} L ${vConnInner.x} ${vConnInner.y} ${vInner1} ${vInner2} L ${vStartOuter.x} ${vStartOuter.y} Z`;
+  paths.push({ d: vPath, label: "Volante" });
+
+  // Línea de corte
+  marks.push({ type: "linea", x1: vcx + vr1, y1: vcy, x2: vcx + vr2, y2: vcy, dashed: true });
+
   labels.push({
     text: `VOLANTE ×${numV}`,
-    x: vox + vr2,
-    y: voy + vr2,
-    size: 12
+    x: vcx, y: vcy - 6, size: 12
+  });
+  labels.push({
+    text: `R int: ${vr1cm.toFixed(1)} cm`,
+    x: vcx, y: vcy + 10, size: 9, color: COLORS.accent
   });
   labels.push({
     text: `Alt: ${m.alturaVolante} cm`,
-    x: vox + vr2,
-    y: voy + vr2 + 16,
-    size: 9,
-    color: COLORS.accent
+    x: vcx, y: vcy + 22, size: 9, color: COLORS.accent
   });
   const totalW = vox + vr2 * 2 + 40;
   const totalH = oy + faldaBase + 40;
@@ -721,7 +729,7 @@ const GENERATORS = {
 const FIELDS_BY_PATTERN = {
   corpino: ["pecho", "cintura", "cadera", "largoCorpino", "anchoEspalda", "alturaCadera"],
   falda_volantes: ["cintura", "cadera", "largoFalda", "alturaCadera", "alturaVolante", "numVolantes"],
-  volante: ["cadera", "alturaVolante", "amplitudVolante"],
+  volante: ["contornoVolante", "alturaVolante", "margenCosturaVolante", "numCoronas"],
   manga: ["largoManga", "contornoBrazo", "contornoMuneca"],
   godets: ["cintura", "cadera", "largoFalda", "alturaCadera", "numGodets"],
   bata_cola: ["cintura", "cadera", "largoFalda", "largoCola", "alturaCadera"]
@@ -739,7 +747,9 @@ const FIELD_LABELS = {
   contornoMuneca: "Contorno de muñeca (cm)",
   alturaVolante: "Altura del volante (cm)",
   numVolantes: "Número de volantes",
-  amplitudVolante: "Amplitud (×)",
+  contornoVolante: "Contorno donde se cose (cm)",
+  margenCosturaVolante: "Margen de costura (cm)",
+  numCoronas: "Número de coronas/donas",
   largoCola: "Largo de la cola (cm)",
   numGodets: "Número de godets"
 };
@@ -855,22 +865,23 @@ const CUTTING_GUIDES = {
     }
   },
   volante: {
-    title: "Corte del Volante Circular",
+    title: "Corte del Volante Circular (Plato)",
     telaRecomendada: "Cualquier tela con buena caída: popelín, gasa, crespón, organza. Evitar telas rígidas.",
     anchoTela: 150,
     dobleTela: false,
     piezas: [{
-      nombre: "Volante circular",
-      cantidad: "según perímetro",
+      nombre: "Corona circular (dona)",
+      cantidad: "según coronas",
       corteDoble: false,
       alDoblez: false,
-      notas: "Se corta en secciones y se unen por las costuras laterales."
+      notas: "Es una dona: un círculo exterior menos un círculo interior. R interior = contorno / (2×π). Se corta la dona, se abre por un radio y se cose directamente a la prenda sin fruncir."
     }],
-    pasos: ["Extiende la tela en una sola capa sobre una superficie amplia y plana.", "Coloca el patrón del volante con la flecha del hilo de la tela apuntando al orillo.", "El volante circular ocupa mucho espacio: calcula cuántas secciones caben en el ancho de tu tela.", "Corta cada sección dejando margen de costura en los laterales rectos.", "En el borde exterior (curvo grande) deja margen para el dobladillo.", "En el borde interior (curvo pequeño) deja margen para coser a la falda.", "Marca todos los piquetes del borde interior para facilitar el montaje.", "Une las secciones por los laterales rectos antes de coser a la prenda."],
-    consejosFlamenca: ["A mayor amplitud, más vuelo tendrá el volante. Para flamenca, ×2 a ×3 es lo habitual.", "Los volantes al bies tienen más caída natural pero gastan más tela.", "Para volantes de cancan: corta una pieza igual en tul rígido.", "Si quieres volantes con mucho cuerpo, puedes endurecerlos con almidón."],
+    pasos: ["Calcula el radio interior: divide el contorno donde se coserá el volante entre 6.28 (2×π). Ejemplo: 200 cm / 6.28 = 31.8 cm.", "Suma al radio interior la altura deseada del volante para obtener el radio exterior.", "Extiende la tela en una sola capa sobre una superficie amplia y plana.", "Fija un cordón o cinta métrica al centro y traza el círculo interior con el radio calculado.", "Sin mover el centro, traza el círculo exterior con el radio mayor.", "Corta ambos círculos: obtendrás una dona (corona circular).", "Corta por un radio (línea recta del centro al borde) para abrir la dona en una tira curva.", "Si necesitas más longitud, corta varias coronas y únelas por los radios cortados.", "Marca piquetes cada 25-30 cm en el borde interior para facilitar el montaje.", "Cose el borde interior directamente a la prenda — no hace falta fruncir."],
+    consejosFlamenca: ["El volante circular o de plato cae con ondas naturales sin necesidad de fruncir.", "Para más vuelo: usa un contorno mayor o corta varias coronas y únelas.", "En flamenca, los volantes suelen medir 20-30 cm de alto.", "Para volantes con cancan, corta una corona igual en tul rígido.", "Si quieres volantes con mucho cuerpo, puedes endurecerlos con almidón.", "Cada corona da un perímetro exterior mayor que el interior — eso crea el vuelo."],
     layout: m => {
       const anchoTela = 150;
-      const rInner = m.cadera * Math.PI / m.amplitudVolante / (2 * Math.PI);
+      const contorno = m.contornoVolante + m.margenCosturaVolante * 2;
+      const rInner = contorno / (2 * Math.PI);
       const rOuter = rInner + m.alturaVolante;
       return {
         anchoTela,
@@ -1579,8 +1590,8 @@ function PatronesFlamenca() {
     type: "number",
     value: measures[field],
     onChange: e => handleMeasureChange(field, e.target.value),
-    step: field === "amplitudVolante" ? 0.5 : 1,
-    min: field === "numVolantes" || field === "numGodets" ? 1 : 0,
+    step: field === "margenCosturaVolante" ? 0.5 : 1,
+    min: field === "numVolantes" || field === "numGodets" || field === "numCoronas" ? 1 : 0,
     style: {
       width: "100%",
       padding: "8px 10px",
